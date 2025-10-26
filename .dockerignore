@@ -1,0 +1,8 @@
+development.env
+*.pyc
+__pycache__/
+
+
+*.svs
+*.dcm
+*.zip
