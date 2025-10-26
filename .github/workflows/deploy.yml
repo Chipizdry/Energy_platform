@@ -1,10 +1,14 @@
-# .github/workflows/deploy.yml
 name: Deploy
 
 on:
   push:
     branches:
       - main
+    paths-ignore:
+      - 'cor_pass/version.py'  # чтобы workflow не зацикливался
+
+permissions:
+  contents: write  # разрешаем Actions пушить
 
 jobs:
   build:
@@ -15,30 +19,45 @@ jobs:
     - uses: actions/checkout@v3
       with:
         fetch-depth: 0
+        persist-credentials: false
 
-    # 2️⃣ Формируем уникальную версию
-    - name: Set version
-      id: version
+    # 2️⃣ Считываем текущий build_number и увеличиваем его на 1
+    - name: Increment build number
+      id: build
       run: |
-        # Короткий хэш последнего коммита
-        SHORT_COMMIT=$(git rev-parse --short HEAD)
-        # Текущее время (год, месяц, день, час, минута, секунда)
-        TIMESTAMP=$(date +%Y%m%d%H%M%S)
-        # Формируем версию
-        VERSION="0.1.${TIMESTAMP}-${SHORT_COMMIT}"
-        # Передаём в environment
-        echo "VERSION=${VERSION}" >> $GITHUB_ENV
-        # Записываем в version.py для фронта
-        echo "__version__='${VERSION}'" > cor_pass/version.py
-        echo "Version file content:"
-        cat cor_pass/version.py
+        VERSION_FILE="cor_pass/version.py"
 
-    # 3️⃣ Устанавливаем зависимости
+        if [ -f "$VERSION_FILE" ]; then
+          CURRENT=$(grep -oP "(?<=__version__='0\.1\.)\d+" $VERSION_FILE)
+          BUILD_NUMBER=$((CURRENT + 1))
+        else
+          BUILD_NUMBER=1
+        fi
+
+        VERSION="0.1.${BUILD_NUMBER}"
+        echo "VERSION=$VERSION" >> $GITHUB_ENV
+
+        echo "__version__='${VERSION}'" > $VERSION_FILE
+        echo "✅ New version: $VERSION"
+        cat $VERSION_FILE
+
+    # 3️⃣ Коммитим и пушим обновлённый version.py
+    - name: Commit and push version
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      run: |
+        git config user.name "github-actions[bot]"
+        git config user.email "github-actions[bot]@users.noreply.github.com"
+        git add cor_pass/version.py
+        git commit -m "🔼 Auto bump version to ${VERSION}" || echo "No changes to commit"
+        git push https://x-access-token:${GITHUB_TOKEN}@github.com/${{ github.repository }}.git HEAD:main
+
+    # 4️⃣ Устанавливаем зависимости
     - name: Install dependencies
       run: pip install -r requirements.txt
 
-    # 4️⃣ Деплой (можно добавить свои команды)
+    # 5️⃣ Деплой
     - name: Deploy
       run: |
-        echo "Deploying version $VERSION"
-        # Пример: ssh user@server "cd /app && git pull && systemctl restart app"
+        echo "🚀 Deploying version $VERSION"
+        # Например: ssh user@server "cd /app && git pull && systemctl restart app"
